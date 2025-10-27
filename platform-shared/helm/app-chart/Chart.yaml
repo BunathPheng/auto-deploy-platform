@@ -8,10 +8,10 @@ keywords:
   - auto-deploy
   - platform
   - kubernetes
-home: https://github.com/acme/auto-deploy-platform
+home: https://github.com/BunathPheng/auto-deploy-platform
 sources:
-  - https://github.com/acme/auto-deploy-platform
+  - https://github.com/BunathPheng/auto-deploy-platform
 maintainers:
-  - name: Platform Team
-    email: platform@acme.com
+  - name: Bunath Pheng
+    email: platform@phengbunath.com
 dependencies: []

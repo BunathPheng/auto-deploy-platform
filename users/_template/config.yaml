@@ -11,7 +11,7 @@ app:
 # Container Configuration
 container:
   image:
-    repository: "docker.io/acme/my-app"
+    repository: "docker.io/phengbunath/my-app"
     tag: "latest"
     pullPolicy: "IfNotPresent"
   
