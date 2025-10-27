@@ -1,0 +1,36 @@
+# Auto-Deploy Platform .gitignore
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# User-specific files (keep structure, ignore sensitive data)
+users/*/kubeconfig
+users/*/projects/*/node_modules/
+users/*/projects/*/.env
+users/*/projects/*/coverage/
+users/*/projects/*/.nyc_output/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker
+.dockerignore
+
+# Keep important files
+!users/*/config.yaml
+!users/*/values.yaml
+!users/*/projects/*/values.yaml
+!users/*/projects/*/Dockerfile
+!users/*/projects/*/package.json
+!users/*/projects/*/index.js
+!users/*/projects/*/.gitignore
+!users/*/projects/*/.dockerignore

@@ -1,0 +1,17 @@
+apiVersion: v2
+name: app-chart
+description: A Helm chart for auto-deploy platform applications
+type: application
+version: 0.1.0
+appVersion: "1.0"
+keywords:
+  - auto-deploy
+  - platform
+  - kubernetes
+home: https://github.com/acme/auto-deploy-platform
+sources:
+  - https://github.com/acme/auto-deploy-platform
+maintainers:
+  - name: Platform Team
+    email: platform@acme.com
+dependencies: []
