@@ -1,0 +1,49 @@
+# User-specific values for testuser
+replicaCount: 1
+
+image:
+  repository: docker.io/phengbunath/testuser-app
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+nameOverride: "testuser"
+fullnameOverride: "testuser"
+
+serviceAccount:
+  create: true
+  name: "testuser-sa"
+
+podAnnotations:
+  user: "testuser"
+  email: ""
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+  hosts:
+    - host: testuser.phengbunath.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+env:
+  - name: USERNAME
+    value: "testuser"
+  - name: ENVIRONMENT
+    value: "development"

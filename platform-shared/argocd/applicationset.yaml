@@ -6,7 +6,7 @@ metadata:
 spec:
   generators:
   - git:
-      repoURL: https://github.com/acme/auto-deploy-platform.git
+      repoURL: https://github.com/BunathPheng/auto-deploy-platform.git
       revision: HEAD
       files:
       - path: "users/*/config.yaml"
@@ -17,7 +17,7 @@ spec:
     spec:
       project: default
       source:
-        repoURL: https://github.com/acme/auto-deploy-platform.git
+        repoURL: https://github.com/BunathPheng/auto-deploy-platform.git
         targetRevision: HEAD
         path: platform-shared/helm/app-chart
         helm:

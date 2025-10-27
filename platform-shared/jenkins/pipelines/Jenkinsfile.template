@@ -1,0 +1,434 @@
+pipeline {
+    agent any
+    
+    environment {
+        // Registry configuration
+        REGISTRY = 'your-registry.com'
+        IMAGE_NAME = "${USERNAME}-${PROJECT_NAME}"
+        IMAGE_TAG = "${BUILD_NUMBER}"
+        
+        // Project detection
+        PROJECT_TYPE = ""
+        
+        // Docker configuration
+        DOCKERFILE_PATH = "Dockerfile"
+        
+        // Node.js configuration
+        NODE_VERSION = "18"
+        
+        // Java configuration
+        JAVA_VERSION = "17"
+        MAVEN_VERSION = "3.9.0"
+    }
+    
+    stages {
+        stage('Detect Project Type') {
+            steps {
+                script {
+                    echo "Detecting project type..."
+                    
+                    // Check for Spring Boot
+                    if (fileExists('pom.xml')) {
+                        env.PROJECT_TYPE = 'spring-boot'
+                        echo "Detected: Spring Boot project"
+                    }
+                    // Check for Next.js
+                    else if (fileExists('package.json') && sh(script: 'grep -q "next" package.json', returnStatus: true) == 0) {
+                        env.PROJECT_TYPE = 'nextjs'
+                        echo "Detected: Next.js project"
+                    }
+                    // Check for Vite
+                    else if (fileExists('package.json') && sh(script: 'grep -q "vite" package.json', returnStatus: true) == 0) {
+                        env.PROJECT_TYPE = 'vite'
+                        echo "Detected: Vite project"
+                    }
+                    // Check for React
+                    else if (fileExists('package.json') && sh(script: 'grep -q "react" package.json', returnStatus: true) == 0) {
+                        env.PROJECT_TYPE = 'react'
+                        echo "Detected: React project"
+                    }
+                    // Default to Node.js
+                    else if (fileExists('package.json')) {
+                        env.PROJECT_TYPE = 'nodejs'
+                        echo "Detected: Node.js project"
+                    }
+                    else {
+                        error "Unknown project type. No package.json or pom.xml found."
+                    }
+                    
+                    echo "Project type: ${env.PROJECT_TYPE}"
+                }
+            }
+        }
+        
+        stage('Install Dependencies') {
+            steps {
+                script {
+                    switch(env.PROJECT_TYPE) {
+                        case 'spring-boot':
+                            echo "Installing Java ${env.JAVA_VERSION} and Maven ${env.MAVEN_VERSION}"
+                            sh '''
+                                # Install Java
+                                sudo apt-get update
+                                sudo apt-get install -y openjdk-${JAVA_VERSION}-jdk
+                                
+                                # Install Maven
+                                wget https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz
+                                sudo tar xzf apache-maven-${MAVEN_VERSION}-bin.tar.gz -C /opt/
+                                sudo ln -sf /opt/apache-maven-${MAVEN_VERSION} /opt/maven
+                                echo 'export PATH=/opt/maven/bin:$PATH' | sudo tee -a /etc/environment
+                            '''
+                            break
+                        case 'nextjs':
+                        case 'vite':
+                        case 'react':
+                        case 'nodejs':
+                            echo "Installing Node.js ${env.NODE_VERSION}"
+                            sh '''
+                                # Install Node.js
+                                curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | sudo -E bash -
+                                sudo apt-get install -y nodejs
+                                
+                                # Install dependencies
+                                npm ci
+                            '''
+                            break
+                    }
+                }
+            }
+        }
+        
+        stage('Run Tests') {
+            steps {
+                script {
+                    switch(env.PROJECT_TYPE) {
+                        case 'spring-boot':
+                            sh '''
+                                export PATH=/opt/maven/bin:$PATH
+                                mvn clean test
+                            '''
+                            break
+                        case 'nextjs':
+                            sh 'npm run test'
+                            break
+                        case 'vite':
+                            sh 'npm run test'
+                            break
+                        case 'react':
+                            sh 'npm test -- --coverage --watchAll=false'
+                            break
+                        case 'nodejs':
+                            sh 'npm test'
+                            break
+                    }
+                }
+            }
+        }
+        
+        stage('Build Application') {
+            steps {
+                script {
+                    switch(env.PROJECT_TYPE) {
+                        case 'spring-boot':
+                            sh '''
+                                export PATH=/opt/maven/bin:$PATH
+                                mvn clean package -DskipTests
+                            '''
+                            break
+                        case 'nextjs':
+                            sh 'npm run build'
+                            break
+                        case 'vite':
+                            sh 'npm run build'
+                            break
+                        case 'react':
+                            sh 'npm run build'
+                            break
+                        case 'nodejs':
+                            sh 'npm run build || echo "No build script found, skipping..."'
+                            break
+                    }
+                }
+            }
+        }
+        
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    // Create appropriate Dockerfile if it doesn't exist
+                    if (!fileExists('Dockerfile')) {
+                        createDockerfile()
+                    }
+                    
+                    // Build Docker image
+                    sh """
+                        docker build -t ${env.REGISTRY}/${env.IMAGE_NAME}:${env.IMAGE_TAG} .
+                        docker tag ${env.REGISTRY}/${env.IMAGE_NAME}:${env.IMAGE_TAG} ${env.REGISTRY}/${env.IMAGE_NAME}:latest
+                    """
+                }
+            }
+        }
+        
+        stage('Push to Registry') {
+            steps {
+                script {
+                    sh """
+                        docker push ${env.REGISTRY}/${env.IMAGE_NAME}:${env.IMAGE_TAG}
+                        docker push ${env.REGISTRY}/${env.IMAGE_NAME}:latest
+                    """
+                }
+            }
+        }
+        
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    // Update values.yaml with new image tag
+                    sh """
+                        # Update the image tag in values.yaml
+                        sed -i 's/tag: ".*"/tag: "${env.IMAGE_TAG}"/' values.yaml
+                        
+                        # Commit and push changes to trigger ArgoCD sync
+                        git config user.name "Jenkins"
+                        git config user.email "jenkins@example.com"
+                        git add values.yaml
+                        git commit -m "Update image tag to ${env.IMAGE_TAG} [skip ci]" || echo "No changes to commit"
+                        git push origin HEAD:main || echo "Push failed or no changes"
+                    """
+                    
+                    // Optional: Trigger ArgoCD sync via API
+                    sh """
+                        # Get ArgoCD admin password
+                        ARGOCD_PASSWORD=\$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d)
+                        
+                        # Login to ArgoCD
+                        argocd login argocd-server.argocd.svc.cluster.local --username admin --password \$ARGOCD_PASSWORD --insecure
+                        
+                        # Sync the application
+                        argocd app sync ${env.USERNAME}-${env.PROJECT_NAME} || echo "Sync failed or app not found"
+                    """
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            // Clean up workspace
+            cleanWs()
+        }
+        success {
+            echo "Pipeline completed successfully!"
+            // Send notification
+            emailext (
+                subject: "Build Success: ${env.PROJECT_NAME}",
+                body: "Build ${env.BUILD_NUMBER} completed successfully for ${env.PROJECT_NAME}",
+                to: "${env.CHANGE_AUTHOR_EMAIL}"
+            )
+        }
+        failure {
+            echo "Pipeline failed!"
+            // Send notification
+            emailext (
+                subject: "Build Failed: ${env.PROJECT_NAME}",
+                body: "Build ${env.BUILD_NUMBER} failed for ${env.PROJECT_NAME}. Check Jenkins logs for details.",
+                to: "${env.CHANGE_AUTHOR_EMAIL}"
+            )
+        }
+    }
+}
+
+def createDockerfile() {
+    switch(env.PROJECT_TYPE) {
+        case 'spring-boot':
+            writeFile file: 'Dockerfile', text: '''
+FROM openjdk:17-jdk-slim
+
+WORKDIR /app
+
+# Copy Maven files
+COPY pom.xml .
+COPY .mvn .mvn
+COPY mvnw .
+
+# Download dependencies
+RUN ./mvnw dependency:go-offline -B
+
+# Copy source code
+COPY src src
+
+# Build application
+RUN ./mvnw clean package -DskipTests
+
+# Create non-root user
+RUN addgroup --system spring && adduser --system spring --ingroup spring
+RUN chown -R spring:spring /app
+USER spring:spring
+
+# Expose port
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \\
+  CMD curl -f http://localhost:8080/actuator/health || exit 1
+
+# Start application
+CMD ["java", "-jar", "target/*.jar"]
+'''
+            break
+            
+        case 'nextjs':
+            writeFile file: 'Dockerfile', text: '''
+FROM node:18-alpine AS base
+
+# Install dependencies only when needed
+FROM base AS deps
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
+
+# Install dependencies based on the preferred package manager
+COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* ./
+RUN \\
+  if [ -f yarn.lock ]; then yarn --frozen-lockfile; \\
+  elif [ -f package-lock.json ]; then npm ci; \\
+  elif [ -f pnpm-lock.yaml ]; then yarn global add pnpm && pnpm i --frozen-lockfile; \\
+  else echo "Lockfile not found." && exit 1; \\
+  fi
+
+# Rebuild the source code only when needed
+FROM base AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+
+# Next.js collects completely anonymous telemetry data about general usage.
+# Learn more here: https://nextjs.org/telemetry
+# Uncomment the following line in case you want to disable telemetry during the build.
+ENV NEXT_TELEMETRY_DISABLED 1
+
+RUN yarn build
+
+# Production image, copy all the files and run next
+FROM base AS runner
+WORKDIR /app
+
+ENV NODE_ENV production
+ENV NEXT_TELEMETRY_DISABLED 1
+
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
+COPY --from=builder /app/public ./public
+
+# Set the correct permission for prerender cache
+RUN mkdir .next
+RUN chown nextjs:nodejs .next
+
+# Automatically leverage output traces to reduce image size
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+USER nextjs
+
+EXPOSE 3000
+
+ENV PORT 3000
+ENV HOSTNAME "0.0.0.0"
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \\
+  CMD curl -f http://localhost:3000/api/health || exit 1
+
+CMD ["node", "server.js"]
+'''
+            break
+            
+        case 'vite':
+        case 'react':
+            writeFile file: 'Dockerfile', text: '''
+FROM node:18-alpine AS base
+
+# Install dependencies only when needed
+FROM base AS deps
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
+
+# Install dependencies based on the preferred package manager
+COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* ./
+RUN \\
+  if [ -f yarn.lock ]; then yarn --frozen-lockfile; \\
+  elif [ -f package-lock.json ]; then npm ci; \\
+  elif [ -f pnpm-lock.yaml ]; then yarn global add pnpm && pnpm i --frozen-lockfile; \\
+  else echo "Lockfile not found." && exit 1; \\
+  fi
+
+# Rebuild the source code only when needed
+FROM base AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+
+RUN yarn build
+
+# Production image, copy all the files and run the app
+FROM nginx:alpine AS runner
+WORKDIR /usr/share/nginx/html
+
+# Copy built files
+COPY --from=builder /app/dist .
+
+# Copy nginx configuration
+COPY nginx.conf /etc/nginx/nginx.conf
+
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
+USER nextjs
+
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \\
+  CMD curl -f http://localhost:8080/ || exit 1
+
+CMD ["nginx", "-g", "daemon off;"]
+'''
+            break
+            
+        case 'nodejs':
+            writeFile file: 'Dockerfile', text: '''
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci --only=production
+
+# Copy application code
+COPY . .
+
+# Create non-root user
+RUN addgroup -g 1000 -S nodejs && \\
+    adduser -S nodejs -u 1000
+
+# Change ownership
+RUN chown -R nodejs:nodejs /app
+USER nodejs
+
+# Expose port
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \\
+  CMD curl -f http://localhost:8080/health || exit 1
+
+# Start application
+CMD ["npm", "start"]
+'''
+            break
+    }
+}
